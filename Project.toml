@@ -1,0 +1,7 @@
+name = "RKIntegrators"
+uuid = "2077f8fa-89ca-406e-baa2-e9c75f043595"
+authors = ["iamfedoroff <iamfedoroff@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
