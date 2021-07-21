@@ -1,9 +1,10 @@
 module RKIntegrators
 
+import CUDA: CuDeviceArray, CuArray, cudaconvert
 import LinearAlgebra: dot
 import StaticArrays: SVector, SMatrix
 
-export Problem, Integrator, rkstep, rkstep!,
+export Problem, Integrator, rkstep, rkstep!, integrator_ensemble,
        RK3, SSPRK3, RK4, Tsit5,   # explicit methods
        RK45, DP5, ATsit5   # embedded methods
 
@@ -19,6 +20,12 @@ end
 
 
 abstract type AbstractIntegrator end
+
+
+struct KernelIntegrator{I, U} <: AbstractIntegrator
+    integ :: I
+    utmp :: U
+end
 
 
 # ******************************************************************************
@@ -103,6 +110,81 @@ function rkstep!(
         @. u += dt * bs[i] * ks[i]
     end
     return nothing
+end
+
+
+# In place for CUDA kernels ----------------------------------------------------
+# Since the broadcasting does not work for CuDeviceArrays, the loops are written
+# explicitly. As a result the step function can be used inside CUDA kernels.
+function rkstep!(
+    integ::ExplicitRKIntegrator{U, T, N}, u::U, t::T, dt::T
+) where {U<:CuDeviceArray, T, N}
+    func, p = integ.prob.func, integ.prob.p
+    as, bs, cs, ks = integ.as, integ.bs, integ.cs, integ.ks
+    utmp = integ.utmp
+
+    Nu = length(u)
+
+    @inbounds for i=1:N
+        for iu=1:Nu
+            utmp[iu] = 0   # @. utmp = 0
+        end
+
+        for j=1:i-1
+            for iu=1:Nu
+                utmp[iu] += as[i,j] * ks[j][iu]   # @. utmp += as[i,j] * ks[j]
+            end
+        end
+
+        for iu=1:Nu
+            utmp[iu] = u[iu] + dt * utmp[iu]   # @. utmp = u + dt * utmp
+        end
+
+        ttmp = t + cs[i] * dt
+        func(ks[i], utmp, p, ttmp)
+    end
+
+    @inbounds for i=1:N
+        for iu=1:Nu
+            u[iu] += dt * bs[i] * ks[i][iu]   # @. u += dt * bs[i] * ks[i]
+        end
+    end
+    return nothing
+end
+
+
+function integrator_ensemble(probs::Vector{Problem}, alg::ExplicitMethod)
+    Np = length(probs)
+
+    kintegs = Array{KernelIntegrator}(undef, Np)
+
+    for i=1:Np
+        prob = probs[i]
+        integ = Integrator(prob, alg)
+
+        if typeof(prob.u0) <: CuArray
+            u0 = cudaconvert(prob.u0)
+            prob = Problem(prob.func, u0, prob.p)
+
+            N = length(integ.ks)
+            ks = SVector{N}(cudaconvert(integ.ks[i]) for i=1:N)
+            utmp = cudaconvert(integ.utmp)
+            kutmp = cudaconvert(CuArray(zero(u0)))
+        else
+            ks = cudaconvert(CuArray(integ.ks))
+            utmp = integ.utmp
+            kutmp = zero(prob.u0)
+        end
+
+        integ = ExplicitRKIntegrator(
+            prob, integ.as, integ.bs, integ.cs, ks, utmp
+        )
+        kintegs[i] = KernelIntegrator(integ, kutmp)
+    end
+
+    kintegs = CuArray([kintegs[i] for i=1:Np])
+
+    return kintegs
 end
 
 
@@ -294,6 +376,138 @@ function substep!(
 
     @. u = utmp
     return t + dt
+end
+
+
+# In place for CUDA kernels ----------------------------------------------------
+# Since the broadcasting does not work for CuDeviceArrays, the loops are written
+# explicitly. As a result the step function can be used inside CUDA kernels.
+function substep!(
+    integ::EmbeddedRKIntegrator{U, T, N}, u::U, t::T, dt::T,
+) where {U<:CuDeviceArray, T, N}
+    func, p = integ.prob.func, integ.prob.p
+    as, bs, cs, bhats, ks = integ.as, integ.bs, integ.cs, integ.bhats, integ.ks
+    utmp, uhat = integ.utmp, integ.uhat
+    atol, rtol, edsc = integ.atol, integ.rtol, integ.edsc
+
+    Nu = length(u)
+
+    err = Inf
+
+    while err > 1
+        @inbounds for i=1:N
+            for iu=1:Nu
+                utmp[iu] = 0   # @. utmp = 0
+            end
+
+            for j=1:i-1
+                for iu=1:Nu
+                    utmp[iu] += as[i,j] * ks[j][iu]   # @. utmp += as[i,j] * ks[j]
+                end
+            end
+
+            for iu=1:Nu
+                utmp[iu] = u[iu] + dt * utmp[iu]   # @. utmp = u + dt * utmp
+            end
+
+            ttmp = t + cs[i] * dt
+            func(ks[i], utmp, p, ttmp)
+        end
+
+
+        @inbounds for iu=1:Nu
+            utmp[iu] = 0   # @. utmp = 0
+        end
+        @inbounds for i=1:N
+            for iu=1:Nu
+                utmp[iu] += bs[i] * ks[i][iu]   # @. utmp += bs[i] * ks[i]
+            end
+        end
+        @inbounds for iu=1:Nu
+            utmp[iu] = u[iu] + dt * utmp[iu]   # @. utmp = u + dt * utmp
+        end
+
+
+        @inbounds for iu=1:Nu
+            uhat[iu] = 0   # @. uhat = 0
+        end
+        @inbounds for i=1:N
+            for iu=1:Nu
+                uhat[iu] += bhats[i] * ks[i][iu]   # @. uhat += bhats[i] * ks[i]
+            end
+        end
+        @inbounds for iu=1:Nu
+            uhat[iu] = u[iu] + dt * uhat[iu]   # @. uhat = u + dt * uhat
+        end
+
+        # W.H. Press et al. "Numerical Recipes", 3rd ed. (Cambridge University
+        # Press, 2007) p. 913
+        #
+        # error estimation:
+        @inbounds for iu=1:Nu
+            edsc[iu] = abs(utmp[iu] - uhat[iu]) /
+                       (atol + max(abs(u[iu]), abs(utmp[iu])) * rtol)
+            # @. edsc = abs(utmp - uhat) / (atol + max(abs(u), abs(utmp)) * rtol)
+        end
+
+        err = zero(T)
+        @inbounds for iu=1:Nu
+            err += edsc[iu]^2   # err = sqrt(sum(abs2, edsc) / length(edsc))
+        end
+        err = sqrt(err) / Nu
+
+        # step estimation:
+        if err > 1
+            rkorder = N - 2   # order of the RK method
+            dt = convert(T, 0.9 * dt / err^(1 / rkorder))
+        end
+    end
+
+    @inbounds for iu=1:Nu
+        u[iu] = utmp[iu]   # @. u = utmp
+    end
+
+    return t + dt
+end
+
+
+function integrator_ensemble(probs::Vector{Problem}, alg::EmbeddedMethod)
+    Np = length(probs)
+
+    kintegs = Array{KernelIntegrator}(undef, Np)
+
+    for i=1:Np
+        prob = probs[i]
+        integ = Integrator(prob, alg)
+
+        if typeof(prob.u0) <: CuArray
+            u0 = cudaconvert(prob.u0)
+            prob = Problem(prob.func, u0, prob.p)
+
+            N = length(integ.ks)
+            ks = SVector{N}(cudaconvert(integ.ks[i]) for i=1:N)
+            utmp = cudaconvert(integ.utmp)
+            uhat = cudaconvert(integ.uhat)
+            edsc = cudaconvert(integ.edsc)
+            kutmp = cudaconvert(CuArray(zero(u0)))
+        else
+            ks = cudaconvert(CuArray(integ.ks))
+            utmp = integ.utmp
+            uhat = integ.uhat
+            edsc = integ.edsc
+            kutmp = zero(prob.u0)
+        end
+
+        integ = EmbeddedRKIntegrator(
+            prob, integ.as, integ.bs, integ.cs, integ.bhats, ks,
+            utmp, uhat, integ.atol, integ.rtol, edsc
+        )
+        kintegs[i] = KernelIntegrator(integ, kutmp)
+    end
+
+    kintegs = CuArray([kintegs[i] for i=1:Np])
+
+    return kintegs
 end
 
 
