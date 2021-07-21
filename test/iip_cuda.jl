@@ -42,4 +42,6 @@ for alg in algs
     solve!(u, utmp, t, integ)
 
     @test isapprox(collect(u), uth, rtol=1e-5)
+
+    @test cuallocated(rkstep!, integ, utmp, t[1], dt) == 0
 end

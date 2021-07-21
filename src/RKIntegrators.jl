@@ -1,5 +1,6 @@
 module RKIntegrators
 
+import LinearAlgebra: dot
 import StaticArrays: SVector, SMatrix
 
 export Problem, Integrator, rkstep, rkstep!,
@@ -23,12 +24,12 @@ abstract type AbstractIntegrator end
 # ******************************************************************************
 # Explicit integrators
 # ******************************************************************************
-struct ExplicitRKIntegrator{U, T, N, L, F, P} <: AbstractIntegrator
+struct ExplicitRKIntegrator{U, T, N, L, F, P, K} <: AbstractIntegrator
     prob :: Problem{F, U, P}
     as :: SMatrix{N, N, T, L}
     bs :: SVector{N, T}
     cs :: SVector{N, T}
-    ks :: Union{Vector{U}, SVector{N, U}}
+    ks :: K
     utmp :: U
 end
 
@@ -108,13 +109,13 @@ end
 # ******************************************************************************
 # Embedded integrators
 # ******************************************************************************
-struct EmbeddedRKIntegrator{U, T, N, L, F, P} <: AbstractIntegrator
+struct EmbeddedRKIntegrator{U, T, N, L, F, P, K} <: AbstractIntegrator
     prob :: Problem{F, U, P}
     as :: SMatrix{N, N, T, L}
     bs :: SVector{N, T}
     cs :: SVector{N, T}
     bhats :: SVector{N, T}
-    ks :: Union{Vector{U}, SVector{N, U}}
+    ks :: K
     utmp :: U
     uhat :: U
     atol :: T
@@ -279,8 +280,10 @@ function substep!(
         # Press, 2007) p. 913
         #
         # error estimation:
-        @. edsc = (abs(utmp - uhat) / (atol + max(abs(u), abs(utmp)) * rtol))^2
-        err = sqrt(sum(abs, edsc) / length(edsc))
+        @. edsc = abs(utmp - uhat) / (atol + max(abs(u), abs(utmp)) * rtol)
+        # err = sqrt(sum(abs2, edsc) / length(edsc))
+        err = sqrt(dot(edsc, edsc) / length(edsc))
+        # use dot product instead of sum to avoid allocations
 
         # step estimation:
         if err > 1
