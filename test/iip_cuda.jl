@@ -22,26 +22,30 @@ t = range(0f0, 3f0, length=100)
 Nt = length(t)
 dt = t[2] - t[1]
 
-Nu = 1000
-u0 = 10f0 * CUDA.ones(Float32, Nu)
 a = 2f0
 p = (a,)
-prob = Problem(func, u0, p)
 
-uth = zeros(Float32, (Nu, Nt))
-u0cpu = collect(u0)
-for i=1:Nu
-    @. uth[i, :] = u0cpu[i] * exp(-a * t)
-end
+Nu = 1000
+u0s = [10 * CUDA.ones(Float32, Nu), 10 * CUDA.ones(ComplexF32, Nu)]
 
-u = CUDA.zeros(Float32, (Nu, Nt))
-utmp = CUDA.zeros(Float32, Nu)
+for u0 in u0s
+    prob = Problem(func, u0, p)
 
-for alg in algs
-    integ = Integrator(prob, alg)
-    solve!(u, utmp, t, integ)
+    uth = zeros(eltype(u0), (Nu, Nt))
+    u0cpu = collect(u0)
+    for i=1:Nu
+        @. uth[i, :] = u0cpu[i] * exp(-a * t)
+    end
 
-    @test isapprox(collect(u), uth, rtol=1e-5)
+    u = CUDA.zeros(eltype(u0), (Nu, Nt))
+    utmp = CUDA.zeros(eltype(u0), Nu)
 
-    @test cuallocated(rkstep!, integ, utmp, t[1], dt) == 0
+    for alg in algs
+        integ = Integrator(prob, alg)
+        solve!(u, utmp, t, integ)
+
+        @test isapprox(collect(u), uth, rtol=1e-5)
+
+        @test cuallocated(rkstep!, integ, utmp, t[1], dt) == 0
+    end
 end

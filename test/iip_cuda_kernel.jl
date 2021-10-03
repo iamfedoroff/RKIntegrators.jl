@@ -52,30 +52,32 @@ Nr = 3
 a = range(1f0, 3f0, length=Nr)
 
 Nu = 2
-u0 = 10f0 * CUDA.ones(Float32, Nu)
+u0s = [10 * CUDA.ones(Float32, Nu), 10 * CUDA.ones(ComplexF32, Nu)]
 
-probs = Array{Problem}(undef, Nr)
-for ir=1:Nr
-    local p = (a[ir], )
-    probs[ir] = Problem(func, u0, p)
-end
+for u0 in u0s
+    probs = Array{Problem}(undef, Nr)
+    for ir=1:Nr
+        local p = (a[ir], )
+        probs[ir] = Problem(func, u0, p)
+    end
 
-uth = zeros(Float32, (Nu, Nr, Nt))
-u0cpu = collect(u0)
-for it=1:Nt
-for ir=1:Nr
-for iu=1:Nu
-    uth[iu,ir,it] = u0cpu[iu] * exp(-a[ir] * t[it])
-end
-end
-end
+    uth = zeros(eltype(u0), (Nu, Nr, Nt))
+    u0cpu = collect(u0)
+    for it=1:Nt
+    for ir=1:Nr
+    for iu=1:Nu
+        uth[iu,ir,it] = u0cpu[iu] * exp(-a[ir] * t[it])
+    end
+    end
+    end
 
-u = CUDA.zeros(Float32, (Nu, Nr, Nt))
+    u = CUDA.zeros(eltype(u0), (Nu, Nr, Nt))
 
-for alg in algs
-    kintegs = integrator_ensemble(probs, alg)
-    solve!(u, t, kintegs)
+    for alg in algs
+        kintegs = integrator_ensemble(probs, alg)
+        solve!(u, t, kintegs)
 
-    @test isapprox(collect(u), uth, rtol=1e-4)
-    # @test solve_allocated(u, t, kintegs) == 0   # sometimes leads to "error in running finalizer"
+        @test isapprox(collect(u), uth, rtol=1e-4)
+        # @test solve_allocated(u, t, kintegs) == 0   # sometimes leads to "error in running finalizer"
+    end
 end

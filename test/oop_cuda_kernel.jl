@@ -39,25 +39,27 @@ dt = t[2] - t[1]
 Nr = 3
 a = range(1f0, 3f0, length=Nr)
 
-u0 = 10f0
+u0s = [10f0, 10f0 + 10f0im]
 
-probs = Array{Problem}(undef, Nr)
-for ir=1:Nr
-    local p = (a[ir], )
-    probs[ir] = Problem(func, u0, p)
-end
+for u0 in u0s
+    probs = Array{Problem}(undef, Nr)
+    for ir=1:Nr
+        local p = (a[ir], )
+        probs[ir] = Problem(func, u0, p)
+    end
 
-uth = zeros(Float32, (Nr, Nt))
-for ir=1:Nr
-    @. uth[ir, :] = u0 * exp(-a[ir] * t)
-end
+    uth = zeros(eltype(u0), (Nr, Nt))
+    for ir=1:Nr
+        @. uth[ir, :] = u0 * exp(-a[ir] * t)
+    end
 
-u = CUDA.zeros(Float32, (Nr, Nt))
+    u = CUDA.zeros(eltype(u0), (Nr, Nt))
 
-for alg in algs
-    kintegs = integrator_ensemble(probs, alg)
-    solve!(u, t, kintegs)
+    for alg in algs
+        kintegs = integrator_ensemble(probs, alg)
+        solve!(u, t, kintegs)
 
-    @test isapprox(collect(u), uth, rtol=1e-4)
-    @test solve_allocated(u, t, kintegs) == 0
+        @test isapprox(collect(u), uth, rtol=1e-4)
+        @test solve_allocated(u, t, kintegs) == 0
+    end
 end

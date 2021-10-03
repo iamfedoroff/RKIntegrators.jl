@@ -22,25 +22,29 @@ t = range(0.0, 3.0, length=100)
 Nt = length(t)
 dt = t[2] - t[1]
 
-Nu = 2
-u0 = 10.0 * ones(Nu)
 a = 2.0
 p = (a,)
-prob = Problem(func, u0, p)
 
-uth = zeros((Nu, Nt))
-for i=1:Nu
-    @. uth[i, :] = u0[i] * exp(-a * t)
-end
+Nu = 2
+u0s = [10 * ones(Float64, Nu), 10 * ones(ComplexF64, Nu)]
 
-u = zeros((Nu, Nt))
-utmp = zeros(Nu)
+for u0 in u0s
+    prob = Problem(func, u0, p)
 
-for alg in algs
-    integ = Integrator(prob, alg)
-    solve!(u, utmp, t, integ)
+    uth = zeros(eltype(u0), (Nu, Nt))
+    for i=1:Nu
+        @. uth[i, :] = u0[i] * exp(-a * t)
+    end
 
-    @test isapprox(u, uth, rtol=1e-5)
+    u = zeros(eltype(u0), (Nu, Nt))
+    utmp = zeros(eltype(u0), Nu)
 
-    @test allocated(rkstep!, integ, utmp, t[1], dt) == 0
+    for alg in algs
+        integ = Integrator(prob, alg)
+        solve!(u, utmp, t, integ)
+
+        @test isapprox(u, uth, rtol=1e-5)
+
+        @test allocated(rkstep!, integ, utmp, t[1], dt) == 0
+    end
 end

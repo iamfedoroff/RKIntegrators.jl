@@ -21,19 +21,23 @@ Nt = length(t)
 dt = t[2] - t[1]
 
 a = 2.0
-u0 = 10.0
 p = (a,)
-prob = Problem(func, u0, p)
 
-uth = @. u0 * exp(-a * t)
+u0s = [10.0, 10.0 + 10.0im]
 
-u = zeros(Nt)
+for u0 in u0s
+    prob = Problem(func, u0, p)
 
-for alg in algs
-    integ = Integrator(prob, alg)
-    solve!(u, t, integ)
+    uth = @. u0 * exp(-a * t)
 
-    @test isapprox(u, uth, rtol=1e-5)
+    u = zeros(eltype(u0), Nt)
 
-    @test allocated(rkstep, integ, u0, t[1], dt) == 0
+    for alg in algs
+        integ = Integrator(prob, alg)
+        solve!(u, t, integ)
+
+        @test isapprox(u, uth, rtol=1e-5)
+
+        @test allocated(rkstep, integ, u0, t[1], dt) == 0
+    end
 end

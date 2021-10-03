@@ -364,7 +364,7 @@ function substep!(
         # error estimation:
         @. edsc = abs(utmp - uhat) / (atol + max(abs(u), abs(utmp)) * rtol)
         # err = sqrt(sum(abs2, edsc) / length(edsc))
-        err = sqrt(dot(edsc, edsc) / length(edsc))
+        err = sqrt(real(dot(edsc, edsc)) / length(edsc))
         # use dot product instead of sum to avoid allocations
 
         # step estimation:
@@ -452,7 +452,7 @@ function substep!(
 
         err = zero(T)
         @inbounds for iu=1:Nu
-            err += edsc[iu]^2   # err = sqrt(sum(abs2, edsc) / length(edsc))
+            err += real(edsc[iu]^2)   # err = sqrt(sum(abs2, edsc) / length(edsc))
         end
         err = sqrt(err) / Nu
 
