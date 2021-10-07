@@ -72,7 +72,7 @@ function rkstep(
     as, bs, cs, ks = integ.as, integ.bs, integ.cs, integ.ks
 
     @inbounds for i=1:N
-        utmp = zero(T)
+        utmp = zero(u)
         for j=1:i-1
             utmp += as[i,j] * ks[j]
         end
@@ -81,10 +81,11 @@ function rkstep(
         ks[i] = func(utmp, p, ttmp)
     end
 
+    utmp = u
     @inbounds for i=1:N
-        u += dt * bs[i] * ks[i]
+        utmp += dt * bs[i] * ks[i]
     end
-    return u
+    return utmp
 end
 
 
