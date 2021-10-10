@@ -22,12 +22,6 @@ end
 abstract type AbstractIntegrator end
 
 
-struct KernelIntegrator{I, U} <: AbstractIntegrator
-    integ :: I
-    utmp :: U
-end
-
-
 # ******************************************************************************
 # Explicit integrators
 # ******************************************************************************
@@ -151,41 +145,6 @@ function rkstep!(
         end
     end
     return nothing
-end
-
-
-function integrator_ensemble(probs::Vector{Problem}, alg::ExplicitMethod)
-    Np = length(probs)
-
-    kintegs = Array{KernelIntegrator}(undef, Np)
-
-    for i=1:Np
-        prob = probs[i]
-        integ = Integrator(prob, alg)
-
-        if typeof(prob.u0) <: CuArray
-            u0 = cudaconvert(prob.u0)
-            prob = Problem(prob.func, u0, prob.p)
-
-            N = length(integ.ks)
-            ks = SVector{N}(cudaconvert(integ.ks[i]) for i=1:N)
-            utmp = cudaconvert(integ.utmp)
-            kutmp = cudaconvert(CuArray(zero(u0)))
-        else
-            ks = cudaconvert(CuArray(integ.ks))
-            utmp = integ.utmp
-            kutmp = zero(prob.u0)
-        end
-
-        integ = ExplicitRKIntegrator(
-            prob, integ.as, integ.bs, integ.cs, ks, utmp
-        )
-        kintegs[i] = KernelIntegrator(integ, kutmp)
-    end
-
-    kintegs = CuArray([kintegs[i] for i=1:Np])
-
-    return kintegs
 end
 
 
@@ -472,44 +431,101 @@ function substep!(
 end
 
 
-function integrator_ensemble(probs::Vector{Problem}, alg::EmbeddedMethod)
+# ******************************************************************************
+# Ensemble integrators
+# ******************************************************************************
+struct EnsembleIntegrator{I, U} <: AbstractIntegrator
+    integ :: I
+    utmp :: U
+end
+
+
+function integrator_ensemble(probs::Vector{Problem}, alg)
     Np = length(probs)
-
-    kintegs = Array{KernelIntegrator}(undef, Np)
-
+    integs = Array{EnsembleIntegrator}(undef, Np)
     for i=1:Np
         prob = probs[i]
+        utmp = zero(prob.u0)
         integ = Integrator(prob, alg)
-
-        if typeof(prob.u0) <: CuArray
-            u0 = cudaconvert(prob.u0)
-            prob = Problem(prob.func, u0, prob.p)
-
-            N = length(integ.ks)
-            ks = SVector{N}(cudaconvert(integ.ks[i]) for i=1:N)
-            utmp = cudaconvert(integ.utmp)
-            uhat = cudaconvert(integ.uhat)
-            edsc = cudaconvert(integ.edsc)
-            kutmp = cudaconvert(CuArray(zero(u0)))
-        else
-            ks = cudaconvert(CuArray(integ.ks))
-            utmp = integ.utmp
-            uhat = integ.uhat
-            edsc = integ.edsc
-            kutmp = zero(prob.u0)
-        end
-
-        integ = EmbeddedRKIntegrator(
-            prob, integ.as, integ.bs, integ.cs, integ.bhats, ks,
-            utmp, uhat, integ.atol, integ.rtol, edsc
-        )
-        kintegs[i] = KernelIntegrator(integ, kutmp)
+        integs[i] = EnsembleIntegrator(integ, utmp)
     end
-
-    kintegs = CuArray([kintegs[i] for i=1:Np])
-
-    return kintegs
+    return integs
 end
+
+
+# function integrator_ensemble(probs::Vector{Problem}, alg::ExplicitMethod)
+#     Np = length(probs)
+
+#     kintegs = Array{EnsembleIntegrator}(undef, Np)
+
+#     for i=1:Np
+#         prob = probs[i]
+#         integ = Integrator(prob, alg)
+
+#         if typeof(prob.u0) <: CuArray
+#             u0 = cudaconvert(prob.u0)
+#             prob = Problem(prob.func, u0, prob.p)
+
+#             N = length(integ.ks)
+#             ks = SVector{N}(cudaconvert(integ.ks[i]) for i=1:N)
+#             utmp = cudaconvert(integ.utmp)
+#             kutmp = cudaconvert(CuArray(zero(u0)))
+#         else
+#             ks = cudaconvert(CuArray(integ.ks))
+#             utmp = integ.utmp
+#             kutmp = zero(prob.u0)
+#         end
+
+#         integ = ExplicitRKIntegrator(
+#             prob, integ.as, integ.bs, integ.cs, ks, utmp
+#         )
+#         kintegs[i] = EnsembleIntegrator(integ, kutmp)
+#     end
+
+#     kintegs = CuArray([kintegs[i] for i=1:Np])
+
+#     return kintegs
+# end
+
+
+# function integrator_ensemble(probs::Vector{Problem}, alg::EmbeddedMethod)
+#     Np = length(probs)
+
+#     kintegs = Array{EnsembleIntegrator}(undef, Np)
+
+#     for i=1:Np
+#         prob = probs[i]
+#         integ = Integrator(prob, alg)
+
+#         if typeof(prob.u0) <: CuArray
+#             u0 = cudaconvert(prob.u0)
+#             prob = Problem(prob.func, u0, prob.p)
+
+#             N = length(integ.ks)
+#             ks = SVector{N}(cudaconvert(integ.ks[i]) for i=1:N)
+#             utmp = cudaconvert(integ.utmp)
+#             uhat = cudaconvert(integ.uhat)
+#             edsc = cudaconvert(integ.edsc)
+#             kutmp = cudaconvert(CuArray(zero(u0)))
+#         else
+#             ks = cudaconvert(CuArray(integ.ks))
+#             utmp = integ.utmp
+#             uhat = integ.uhat
+#             edsc = integ.edsc
+#             kutmp = zero(prob.u0)
+#         end
+
+#         integ = EmbeddedRKIntegrator(
+#             prob, integ.as, integ.bs, integ.cs, integ.bhats, ks,
+#             utmp, uhat, integ.atol, integ.rtol, edsc
+#         )
+#         kintegs[i] = EnsembleIntegrator(integ, kutmp)
+#     end
+
+#     kintegs = CuArray([kintegs[i] for i=1:Np])
+
+#     return kintegs
+# end
 
 
 end

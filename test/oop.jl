@@ -16,28 +16,25 @@ function solve!(u, t, integ)
 end
 
 
-t = range(0.0, 3.0, length=100)
-Nt = length(t)
-dt = t[2] - t[1]
+Nt = 100
+t = range(0.0, 3.0, length=Nt)
 
 a = 2.0
-p = (a,)
 
 u0s = [10.0, 10.0 + 10.0im]
 
 for u0 in u0s
-    prob = Problem(func, u0, p)
-
     uth = @. u0 * exp(-a * t)
 
-    u = zeros(eltype(u0), Nt)
+    p = (a,)
+    prob = Problem(func, u0, p)
 
+    u = zeros(eltype(u0), Nt)
     for alg in algs
         integ = Integrator(prob, alg)
         solve!(u, t, integ)
 
         @test isapprox(u, uth, rtol=1e-5)
-
-        @test allocated(rkstep, integ, u0, t[1], dt) == 0
+        @test allocated(solve!, u, t, integ) == 0
     end
 end

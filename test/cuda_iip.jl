@@ -18,34 +18,31 @@ function solve!(u, utmp, t, integ)
 end
 
 
-t = range(0f0, 3f0, length=100)
-Nt = length(t)
-dt = t[2] - t[1]
+Nt = 100
+t = range(0f0, 3f0, length=Nt)
 
 a = 2f0
-p = (a,)
 
 Nu = 1000
 u0s = [10 * CUDA.ones(Float32, Nu), 10 * CUDA.ones(ComplexF32, Nu)]
 
 for u0 in u0s
-    prob = Problem(func, u0, p)
-
     uth = zeros(eltype(u0), (Nu, Nt))
     u0cpu = collect(u0)
     for i=1:Nu
         @. uth[i, :] = u0cpu[i] * exp(-a * t)
     end
 
+    p = (a,)
+    prob = Problem(func, u0, p)
+
     u = CUDA.zeros(eltype(u0), (Nu, Nt))
     utmp = CUDA.zeros(eltype(u0), Nu)
-
     for alg in algs
         integ = Integrator(prob, alg)
         solve!(u, utmp, t, integ)
 
         @test isapprox(collect(u), uth, rtol=1e-5)
-
-        @test cuallocated(rkstep!, integ, utmp, t[1], dt) == 0
+        @test allocated(solve!, u, utmp, t, integ) == 0
     end
 end
