@@ -20,7 +20,9 @@ end
     if has_cuda()
         CUDA.allowscalar(false)
         include("cuda_iip.jl")
-        # include("oop_cuda_kernel.jl")
-        # include("iip_cuda_kernel.jl")
+        include("cuda_ensemble_oop.jl")
+        include("cuda_ensemble_iip.jl")
+#         # include("oop_cuda_kernel.jl")
+#         # include("iip_cuda_kernel.jl")
     end
 end
