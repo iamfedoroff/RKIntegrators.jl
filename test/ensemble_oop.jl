@@ -12,7 +12,7 @@ function solve!(u, t, integs)
     for i=1:Np
         integ = integs[i].integ
 
-        u[i,1] = integ.prob.u0
+        u[i,1] = integ.u0
         for j=1:Nt-1
             u[i,j+1] = rkstep(integ, u[i,j], t[j], dt)
         end

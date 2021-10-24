@@ -27,7 +27,7 @@ function solve_kernel(u, t, integs)
     for ip=id:stride:Np
         integ = integs[ip].integ
 
-        u[ip,1] = integ.prob.u0
+        u[ip,1] = integ.u0
         for it=1:Nt-1
             u[ip,it+1] = rkstep(integ, u[ip,it], t[it], dt)
         end

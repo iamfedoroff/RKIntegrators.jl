@@ -32,7 +32,7 @@ function solve_kernel(u, t, integs)
         utmp = integs[ip].utmp
 
         for iu=1:Nu
-            utmp[iu] = integ.prob.u0[iu]
+            utmp[iu] = integ.u0[iu]
             u[iu, ip, 1] = utmp[iu]
         end
 

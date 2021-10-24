@@ -8,7 +8,7 @@ end
 function solve!(u, utmp, t, integ)
     Nt = length(t)
     dt = t[2] - t[1]
-    @. utmp = integ.prob.u0
+    @. utmp = integ.u0
     @. u[:, 1] = utmp
     for i=1:Nt-1
         rkstep!(integ, utmp, t[i], dt)

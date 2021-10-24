@@ -27,7 +27,9 @@ abstract type AbstractIntegrator end
 # Explicit integrators
 # ******************************************************************************
 struct ExplicitRKIntegrator{U, T, N, L, F, P, K} <: AbstractIntegrator
-    prob :: Problem{F, U, P}
+    func :: F
+    u0 :: U
+    p :: P
     as :: SMatrix{N, N, T, L}
     bs :: SVector{N, T}
     cs :: SVector{N, T}
@@ -37,7 +39,9 @@ end
 
 
 function Integrator(prob::Problem, alg::ExplicitMethod; kwargs...)
-    T = real(eltype(prob.u0))
+    func, u0, p = prob.func, prob.u0, prob.p
+
+    T = real(eltype(u0))
 
     as, bs, cs = tableau(alg)
     N = length(cs)
@@ -45,11 +49,11 @@ function Integrator(prob::Problem, alg::ExplicitMethod; kwargs...)
     bs = SVector{N, T}(bs)
     cs = SVector{N, T}(cs)
 
-    ks = [zero(prob.u0) for i in 1:N]
+    ks = [zero(u0) for i in 1:N]
 
-    utmp = zero(prob.u0)
+    utmp = zero(u0)
 
-    return ExplicitRKIntegrator(prob, as, bs, cs, ks, utmp)
+    return ExplicitRKIntegrator(func, u0, p, as, bs, cs, ks, utmp)
 end
 
 
@@ -57,7 +61,7 @@ end
 function rkstep(
     integ::ExplicitRKIntegrator{U, T, N}, u::U, t::T, dt::T
 ) where {U, T, N}
-    func, p = integ.prob.func, integ.prob.p
+    func, p = integ.func, integ.p
     as, bs, cs, ks = integ.as, integ.bs, integ.cs, integ.ks
 
     @inbounds for i=1:N
@@ -82,7 +86,7 @@ end
 function rkstep!(
     integ::ExplicitRKIntegrator{U, T, N}, u::U, t::T, dt::T
 ) where {U, T, N}
-    func, p = integ.prob.func, integ.prob.p
+    func, p = integ.func, integ.p
     as, bs, cs, ks = integ.as, integ.bs, integ.cs, integ.ks
     utmp = integ.utmp
 
@@ -109,7 +113,7 @@ end
 function rkstep!(
     integ::ExplicitRKIntegrator{U, T, N}, u::U, t::T, dt::T
 ) where {U<:CuDeviceArray, T, N}
-    func, p = integ.prob.func, integ.prob.p
+    func, p = integ.func, integ.p
     as, bs, cs, ks = integ.as, integ.bs, integ.cs, integ.ks
     utmp = integ.utmp
 
@@ -147,7 +151,9 @@ end
 # Embedded integrators
 # ******************************************************************************
 struct EmbeddedRKIntegrator{U, T, N, L, F, P, K} <: AbstractIntegrator
-    prob :: Problem{F, U, P}
+    func :: F
+    u0 :: U
+    p :: P
     as :: SMatrix{N, N, T, L}
     bs :: SVector{N, T}
     cs :: SVector{N, T}
@@ -164,7 +170,9 @@ end
 function Integrator(
     prob::Problem, alg::EmbeddedMethod; atol=1e-6, rtol=1e-3, kwargs...
 )
-    T = real(eltype(prob.u0))
+    func, u0, p = prob.func, prob.u0, prob.p
+
+    T = real(eltype(u0))
 
     as, bs, cs, bhats = tableau(alg)
     N = length(cs)
@@ -173,17 +181,17 @@ function Integrator(
     cs = SVector{N, T}(cs)
     bhats = SVector{N, T}(bhats)
 
-    ks = [zero(prob.u0) for i in 1:N]
+    ks = [zero(u0) for i in 1:N]
 
-    utmp = zero(prob.u0)
-    uhat = zero(prob.u0)
+    utmp = zero(u0)
+    uhat = zero(u0)
 
     atol = convert(T, atol)
     rtol = convert(T, rtol)
-    edsc = zero(prob.u0)
+    edsc = zero(u0)
 
     return EmbeddedRKIntegrator(
-        prob, as, bs, cs, bhats, ks, utmp, uhat, atol, rtol, edsc,
+        func, u0, p, as, bs, cs, bhats, ks, utmp, uhat, atol, rtol, edsc,
     )
 end
 
@@ -208,7 +216,7 @@ end
 function substep(
     integ::EmbeddedRKIntegrator{U, T, N}, u::U, t::T, dt::T,
 ) where {U, T, N}
-    func, p = integ.prob.func, integ.prob.p
+    func, p = integ.func, integ.p
     as, bs, cs, bhats, ks = integ.as, integ.bs, integ.cs, integ.bhats, integ.ks
     atol, rtol = integ.atol, integ.rtol
 
@@ -277,7 +285,7 @@ end
 function substep!(
     integ::EmbeddedRKIntegrator{U, T, N}, u::U, t::T, dt::T,
 ) where {U, T, N}
-    func, p = integ.prob.func, integ.prob.p
+    func, p = integ.func, integ.p
     as, bs, cs, bhats, ks = integ.as, integ.bs, integ.cs, integ.bhats, integ.ks
     utmp, uhat = integ.utmp, integ.uhat
     atol, rtol, edsc = integ.atol, integ.rtol, integ.edsc
@@ -334,7 +342,7 @@ end
 function substep!(
     integ::EmbeddedRKIntegrator{U, T, N}, u::U, t::T, dt::T,
 ) where {U<:CuDeviceArray, T, N}
-    func, p = integ.prob.func, integ.prob.p
+    func, p = integ.func, integ.p
     as, bs, cs, bhats, ks = integ.as, integ.bs, integ.cs, integ.bhats, integ.ks
     utmp, uhat = integ.utmp, integ.uhat
     atol, rtol, edsc = integ.atol, integ.rtol, integ.edsc
@@ -445,15 +453,6 @@ end
 # ******************************************************************************
 # CUDA Adaptors
 # ******************************************************************************
-function Adapt.adapt_structure(to, prob::Problem)
-    return Problem(
-        adapt(to, prob.func),
-        adapt(to, prob.u0),
-        adapt(to, prob.p),
-    )
-end
-
-
 function Adapt.adapt_structure(to, integ::ExplicitRKIntegrator)
     if eltype(integ.ks) <: AbstractArray
         ks = SVector{length(integ.ks)}(cudaconvert.(integ.ks))
@@ -461,7 +460,9 @@ function Adapt.adapt_structure(to, integ::ExplicitRKIntegrator)
         ks = adapt(CuArray, integ.ks)
     end
     return ExplicitRKIntegrator(
-        adapt(to, integ.prob),
+        adapt(to, integ.func),
+        adapt(to, integ.u0),
+        adapt(to, integ.p),
         adapt(to, integ.as),
         adapt(to, integ.bs),
         adapt(to, integ.cs),
@@ -478,7 +479,9 @@ function Adapt.adapt_structure(to, integ::EmbeddedRKIntegrator)
         ks = adapt(CuArray, integ.ks)
     end
     return EmbeddedRKIntegrator(
-        adapt(to, integ.prob),
+        adapt(to, integ.func),
+        adapt(to, integ.u0),
+        adapt(to, integ.p),
         adapt(to, integ.as),
         adapt(to, integ.bs),
         adapt(to, integ.cs),

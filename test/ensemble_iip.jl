@@ -13,7 +13,7 @@ function solve!(u, t, integs)
         integ = integs[i].integ
         utmp = integs[i].utmp
 
-        @. utmp = integ.prob.u0
+        @. utmp = integ.u0
         @. u[:, i, 1] = utmp
 
         for j=1:Nt-1
