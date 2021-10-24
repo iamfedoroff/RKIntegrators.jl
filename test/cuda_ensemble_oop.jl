@@ -7,13 +7,9 @@ end
 
 function solve!(u, t, integs)
     Np  = length(integs)
-    nthreads = min(Np, 256)
-    nblocks = cld(Np, nthreads)
-
-    GC.@preserve integs begin
-        cuintegs = CuArray(cudaconvert.(integs))
-        @cuda threads=nthreads blocks=nblocks solve_kernel(u, t, cuintegs)
-    end
+    nth = min(Np, 256)
+    nbl = cld(Np, nth)
+    @cuda threads=nth blocks=nbl solve_kernel(u, t, integs)
 end
 
 
@@ -59,6 +55,7 @@ for u0 in u0s
     u = CUDA.zeros(eltype(u0), (Np, Nt))
     for alg in algs
         integs = integrator_ensemble(probs, alg)
+        integs = CuArray(cudaconvert.(integs))
         solve!(u, t, integs)
 
         @test isapprox(collect(u), uth, rtol=1e-4)

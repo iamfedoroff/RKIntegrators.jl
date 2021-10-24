@@ -49,7 +49,7 @@ function Integrator(prob::Problem, alg::ExplicitMethod; kwargs...)
     bs = SVector{N, T}(bs)
     cs = SVector{N, T}(cs)
 
-    ks = [zero(u0) for i in 1:N]
+    ks = hcat([zero(u0) for i in 1:N]...)   # length(u0) x N Matrix
 
     utmp = zero(u0)
 
@@ -93,15 +93,15 @@ function rkstep!(
     @inbounds for i=1:N
         @. utmp = 0
         for j=1:i-1
-            @. utmp += as[i,j] * ks[j]
+            @views @. utmp += as[i,j] * ks[:,j]
         end
         @. utmp = u + dt * utmp
         ttmp = t + cs[i] * dt
-        func(ks[i], utmp, p, ttmp)
+        @views func(ks[:,i], utmp, p, ttmp)
     end
 
     @inbounds for i=1:N
-        @. u += dt * bs[i] * ks[i]
+        @views @. u += dt * bs[i] * ks[:,i]
     end
     return nothing
 end
@@ -126,7 +126,7 @@ function rkstep!(
 
         for j=1:i-1
             for iu=1:Nu
-                utmp[iu] += as[i,j] * ks[j][iu]   # @. utmp += as[i,j] * ks[j]
+                utmp[iu] += as[i,j] * ks[iu,j]   # @. utmp += as[i,j] * ks[:,j]
             end
         end
 
@@ -135,12 +135,12 @@ function rkstep!(
         end
 
         ttmp = t + cs[i] * dt
-        func(ks[i], utmp, p, ttmp)
+        @views func(ks[:,i], utmp, p, ttmp)
     end
 
     @inbounds for i=1:N
         for iu=1:Nu
-            u[iu] += dt * bs[i] * ks[i][iu]   # @. u += dt * bs[i] * ks[i]
+            u[iu] += dt * bs[i] * ks[iu,i]   # @. u += dt * bs[i] * ks[:,i]
         end
     end
     return nothing
@@ -181,7 +181,7 @@ function Integrator(
     cs = SVector{N, T}(cs)
     bhats = SVector{N, T}(bhats)
 
-    ks = [zero(u0) for i in 1:N]
+    ks = hcat([zero(u0) for i in 1:N]...)   # length(u0) x N Matrix
 
     utmp = zero(u0)
     uhat = zero(u0)
@@ -296,22 +296,22 @@ function substep!(
         @inbounds for i=1:N
             @. utmp = 0
             for j=1:i-1
-                @. utmp += as[i,j] * ks[j]
+                @views @. utmp += as[i,j] * ks[:,j]
             end
             @. utmp = u + dt * utmp
             ttmp = t + cs[i] * dt
-            func(ks[i], utmp, p, ttmp)
+            @views func(ks[:,i], utmp, p, ttmp)
         end
 
         @. utmp = 0
         @inbounds for i=1:N
-            @. utmp += bs[i] * ks[i]
+            @views @. utmp += bs[i] * ks[:,i]
         end
         @. utmp = u + dt * utmp
 
         @. uhat = 0
         @inbounds for i=1:N
-            @. uhat += bhats[i] * ks[i]
+            @views @. uhat += bhats[i] * ks[:,i]
         end
         @. uhat = u + dt * uhat
 
@@ -359,7 +359,7 @@ function substep!(
 
             for j=1:i-1
                 for iu=1:Nu
-                    utmp[iu] += as[i,j] * ks[j][iu]   # @. utmp += as[i,j] * ks[j]
+                    utmp[iu] += as[i,j] * ks[iu,j]   # @. utmp += as[i,j] * ks[:,j]
                 end
             end
 
@@ -368,7 +368,7 @@ function substep!(
             end
 
             ttmp = t + cs[i] * dt
-            func(ks[i], utmp, p, ttmp)
+            @views func(ks[:,i], utmp, p, ttmp)
         end
 
 
@@ -377,7 +377,7 @@ function substep!(
         end
         @inbounds for i=1:N
             for iu=1:Nu
-                utmp[iu] += bs[i] * ks[i][iu]   # @. utmp += bs[i] * ks[i]
+                utmp[iu] += bs[i] * ks[iu,i]   # @. utmp += bs[i] * ks[:,i]
             end
         end
         @inbounds for iu=1:Nu
@@ -390,7 +390,7 @@ function substep!(
         end
         @inbounds for i=1:N
             for iu=1:Nu
-                uhat[iu] += bhats[i] * ks[i][iu]   # @. uhat += bhats[i] * ks[i]
+                uhat[iu] += bhats[i] * ks[iu,i]   # @. uhat += bhats[i] * ks[:,i]
             end
         end
         @inbounds for iu=1:Nu
@@ -454,10 +454,10 @@ end
 # CUDA Adaptors
 # ******************************************************************************
 function Adapt.adapt_structure(to, integ::ExplicitRKIntegrator)
-    if eltype(integ.ks) <: AbstractArray
-        ks = SVector{length(integ.ks)}(cudaconvert.(integ.ks))
-    else
+    if typeof(integ.ks) <: Array
         ks = adapt(CuArray, integ.ks)
+    else
+        ks = integ.ks
     end
     return ExplicitRKIntegrator(
         adapt(to, integ.func),
@@ -473,10 +473,10 @@ end
 
 
 function Adapt.adapt_structure(to, integ::EmbeddedRKIntegrator)
-    if eltype(integ.ks) <: AbstractArray
-        ks = SVector{length(integ.ks)}(cudaconvert.(integ.ks))
-    else
+    if typeof(integ.ks) <: Array
         ks = adapt(CuArray, integ.ks)
+    else
+        ks = integ.ks
     end
     return EmbeddedRKIntegrator(
         adapt(to, integ.func),
