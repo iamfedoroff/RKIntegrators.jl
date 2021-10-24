@@ -20,14 +20,17 @@ function solve_kernel(u, t, integs)
     id = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = blockDim().x * gridDim().x
 
-    Nu, Np, Nt = size(u)
+    Np = length(integs)
+    Nt = length(t)
     dt = t[2] - t[1]
 
     for ip=id:stride:Np
         integ = integs[ip].integ
         utmp = integs[ip].utmp
 
-        for iu=1:Nu
+        ipre = CartesianIndices(size(utmp))
+
+        for iu in ipre
             utmp[iu] = integ.u0[iu]
             u[iu, ip, 1] = utmp[iu]
         end
@@ -35,7 +38,7 @@ function solve_kernel(u, t, integs)
         for it=1:Nt-1
             rkstep!(integ, utmp, t[it], dt)
 
-            for iu=1:Nu
+            for iu in ipre
                 u[iu,ip,it+1] = utmp[iu]
             end
         end
@@ -51,14 +54,21 @@ Np = 1000
 a = range(1f0, 3f0, length=Np)
 
 Nu = 2
-u0s = [10 * CUDA.ones(Float32, Nu), 10 * CUDA.ones(ComplexF32, Nu)]
+u0s = [
+    10 * CUDA.ones(Nu),
+    10 * CUDA.ones(ComplexF32, Nu),
+    10 * CUDA.ones((Nu, Nu)),
+]
 
 for u0 in u0s
-    uth = zeros(eltype(u0), (Nu, Np, Nt))
+    s = size(u0)
+    ipre = CartesianIndices(s)
+
+    uth = zeros(eltype(u0), (s..., Np, Nt))
     u0cpu = collect(u0)
-    for ip=1:Np
-    for iu=1:Nu
-        @. uth[iu,ip,:] = u0cpu[iu] * exp(-a[ip] * t)
+    for j=1:Nt
+    for i=1:Np
+        @. uth[ipre,i,j] = u0cpu[ipre] * exp(-a[i] * t[j])
     end
     end
 
@@ -68,11 +78,13 @@ for u0 in u0s
         probs[i] = Problem(func, u0, p)
     end
 
-    u = CUDA.zeros(eltype(u0), (Nu, Np, Nt))
+    u = CUDA.zeros(eltype(u0), (s..., Np, Nt))
     for alg in algs
         integs = integrator_ensemble(probs, alg)
-        integs = CuArray(cudaconvert.(integs))
-        solve!(u, t, integs)
+        cuintegs = CuArray(cudaconvert.(integs))
+        GC.@preserve integs begin
+            solve!(u, t, cuintegs)
+        end
 
         @test isapprox(collect(u), uth, rtol=1e-4)
     end

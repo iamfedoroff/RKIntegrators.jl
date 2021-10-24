@@ -7,7 +7,9 @@ using Test
 allocated(func, args...) = CUDA.@allocated func(args...)
 
 
-algs = [RK3(), SSPRK3(), RK4(), Tsit5(), RK45(), DP5(), ATsit5()]
+# WARNING!!! For some reason ATsit5() is too slow.
+# algs = [RK3(), SSPRK3(), RK4(), Tsit5(), RK45(), DP5(), ATsit5()]
+algs = [RK3(), SSPRK3(), RK4(), Tsit5(), RK45(), DP5()]
 
 @testset "CPU" begin
     include("oop.jl")

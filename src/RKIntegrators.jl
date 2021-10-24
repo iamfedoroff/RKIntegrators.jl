@@ -49,7 +49,10 @@ function Integrator(prob::Problem, alg::ExplicitMethod; kwargs...)
     bs = SVector{N, T}(bs)
     cs = SVector{N, T}(cs)
 
-    ks = hcat([zero(u0) for i in 1:N]...)   # length(u0) x N Matrix
+    ks = zeros(eltype(u0), (size(u0)..., N))
+    if typeof(u0) <: CuArray
+        ks = CuArray(ks)
+    end
 
     utmp = zero(u0)
 
@@ -90,18 +93,20 @@ function rkstep!(
     as, bs, cs, ks = integ.as, integ.bs, integ.cs, integ.ks
     utmp = integ.utmp
 
+    ipre = CartesianIndices(size(utmp))
+
     @inbounds for i=1:N
         @. utmp = 0
         for j=1:i-1
-            @views @. utmp += as[i,j] * ks[:,j]
+            @views @. utmp += as[i,j] * ks[ipre,j]
         end
         @. utmp = u + dt * utmp
         ttmp = t + cs[i] * dt
-        @views func(ks[:,i], utmp, p, ttmp)
+        @views func(ks[ipre,i], utmp, p, ttmp)
     end
 
     @inbounds for i=1:N
-        @views @. u += dt * bs[i] * ks[:,i]
+        @views @. u += dt * bs[i] * ks[ipre,i]
     end
     return nothing
 end
@@ -117,29 +122,29 @@ function rkstep!(
     as, bs, cs, ks = integ.as, integ.bs, integ.cs, integ.ks
     utmp = integ.utmp
 
-    Nu = length(u)
+    ipre = CartesianIndices(size(utmp))
 
     @inbounds for i=1:N
-        for iu=1:Nu
+        for iu in ipre
             utmp[iu] = 0   # @. utmp = 0
         end
 
         for j=1:i-1
-            for iu=1:Nu
+            for iu in ipre
                 utmp[iu] += as[i,j] * ks[iu,j]   # @. utmp += as[i,j] * ks[:,j]
             end
         end
 
-        for iu=1:Nu
+        for iu in ipre
             utmp[iu] = u[iu] + dt * utmp[iu]   # @. utmp = u + dt * utmp
         end
 
         ttmp = t + cs[i] * dt
-        @views func(ks[:,i], utmp, p, ttmp)
+        @views func(ks[ipre,i], utmp, p, ttmp)
     end
 
     @inbounds for i=1:N
-        for iu=1:Nu
+        for iu in ipre
             u[iu] += dt * bs[i] * ks[iu,i]   # @. u += dt * bs[i] * ks[:,i]
         end
     end
@@ -181,7 +186,10 @@ function Integrator(
     cs = SVector{N, T}(cs)
     bhats = SVector{N, T}(bhats)
 
-    ks = hcat([zero(u0) for i in 1:N]...)   # length(u0) x N Matrix
+    ks = zeros(eltype(u0), (size(u0)..., N))
+    if typeof(u0) <: CuArray
+        ks = CuArray(ks)
+    end
 
     utmp = zero(u0)
     uhat = zero(u0)
@@ -290,28 +298,30 @@ function substep!(
     utmp, uhat = integ.utmp, integ.uhat
     atol, rtol, edsc = integ.atol, integ.rtol, integ.edsc
 
+    ipre = CartesianIndices(size(utmp))
+
     err = Inf
 
     while err > 1
         @inbounds for i=1:N
             @. utmp = 0
             for j=1:i-1
-                @views @. utmp += as[i,j] * ks[:,j]
+                @views @. utmp += as[i,j] * ks[ipre,j]
             end
             @. utmp = u + dt * utmp
             ttmp = t + cs[i] * dt
-            @views func(ks[:,i], utmp, p, ttmp)
+            @views func(ks[ipre,i], utmp, p, ttmp)
         end
 
         @. utmp = 0
         @inbounds for i=1:N
-            @views @. utmp += bs[i] * ks[:,i]
+            @views @. utmp += bs[i] * ks[ipre,i]
         end
         @. utmp = u + dt * utmp
 
         @. uhat = 0
         @inbounds for i=1:N
-            @views @. uhat += bhats[i] * ks[:,i]
+            @views @. uhat += bhats[i] * ks[ipre,i]
         end
         @. uhat = u + dt * uhat
 
@@ -347,53 +357,53 @@ function substep!(
     utmp, uhat = integ.utmp, integ.uhat
     atol, rtol, edsc = integ.atol, integ.rtol, integ.edsc
 
-    Nu = length(u)
+    ipre = CartesianIndices(size(utmp))
 
     err = Inf
 
     while err > 1
         @inbounds for i=1:N
-            for iu=1:Nu
+            for iu in ipre
                 utmp[iu] = 0   # @. utmp = 0
             end
 
             for j=1:i-1
-                for iu=1:Nu
+                for iu in ipre
                     utmp[iu] += as[i,j] * ks[iu,j]   # @. utmp += as[i,j] * ks[:,j]
                 end
             end
 
-            for iu=1:Nu
+            for iu in ipre
                 utmp[iu] = u[iu] + dt * utmp[iu]   # @. utmp = u + dt * utmp
             end
 
             ttmp = t + cs[i] * dt
-            @views func(ks[:,i], utmp, p, ttmp)
+            @views func(ks[ipre,i], utmp, p, ttmp)
         end
 
 
-        @inbounds for iu=1:Nu
+        @inbounds for iu in ipre
             utmp[iu] = 0   # @. utmp = 0
         end
         @inbounds for i=1:N
-            for iu=1:Nu
+            for iu in ipre
                 utmp[iu] += bs[i] * ks[iu,i]   # @. utmp += bs[i] * ks[:,i]
             end
         end
-        @inbounds for iu=1:Nu
+        @inbounds for iu in ipre
             utmp[iu] = u[iu] + dt * utmp[iu]   # @. utmp = u + dt * utmp
         end
 
 
-        @inbounds for iu=1:Nu
+        @inbounds for iu in ipre
             uhat[iu] = 0   # @. uhat = 0
         end
         @inbounds for i=1:N
-            for iu=1:Nu
+            for iu in ipre
                 uhat[iu] += bhats[i] * ks[iu,i]   # @. uhat += bhats[i] * ks[:,i]
             end
         end
-        @inbounds for iu=1:Nu
+        @inbounds for iu in ipre
             uhat[iu] = u[iu] + dt * uhat[iu]   # @. uhat = u + dt * uhat
         end
 
@@ -401,17 +411,17 @@ function substep!(
         # Press, 2007) p. 913
         #
         # error estimation:
-        @inbounds for iu=1:Nu
+        @inbounds for iu in ipre
             edsc[iu] = abs(utmp[iu] - uhat[iu]) /
                        (atol + max(abs(u[iu]), abs(utmp[iu])) * rtol)
             # @. edsc = abs(utmp - uhat) / (atol + max(abs(u), abs(utmp)) * rtol)
         end
 
         err = zero(T)
-        @inbounds for iu=1:Nu
+        @inbounds for iu in ipre
             err += real(edsc[iu]^2)   # err = sqrt(sum(abs2, edsc) / length(edsc))
         end
-        err = sqrt(err) / Nu
+        err = sqrt(err / length(edsc))
 
         # step estimation:
         if err > 1
@@ -420,7 +430,7 @@ function substep!(
         end
     end
 
-    @inbounds for iu=1:Nu
+    @inbounds for iu in ipre
         u[iu] = utmp[iu]   # @. u = utmp
     end
 
@@ -454,11 +464,7 @@ end
 # CUDA Adaptors
 # ******************************************************************************
 function Adapt.adapt_structure(to, integ::ExplicitRKIntegrator)
-    if typeof(integ.ks) <: Array
-        ks = adapt(CuArray, integ.ks)
-    else
-        ks = integ.ks
-    end
+    ks = adapt(CuArray, integ.ks)
     return ExplicitRKIntegrator(
         adapt(to, integ.func),
         adapt(to, integ.u0),
@@ -473,11 +479,7 @@ end
 
 
 function Adapt.adapt_structure(to, integ::EmbeddedRKIntegrator)
-    if typeof(integ.ks) <: Array
-        ks = adapt(CuArray, integ.ks)
-    else
-        ks = integ.ks
-    end
+    ks = adapt(CuArray, integ.ks)
     return EmbeddedRKIntegrator(
         adapt(to, integ.func),
         adapt(to, integ.u0),

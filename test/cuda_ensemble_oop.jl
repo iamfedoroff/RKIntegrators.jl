@@ -55,8 +55,10 @@ for u0 in u0s
     u = CUDA.zeros(eltype(u0), (Np, Nt))
     for alg in algs
         integs = integrator_ensemble(probs, alg)
-        integs = CuArray(cudaconvert.(integs))
-        solve!(u, t, integs)
+        cuintegs = CuArray(cudaconvert.(integs))
+        GC.@preserve integs begin
+            solve!(u, t, cuintegs)
+        end
 
         @test isapprox(collect(u), uth, rtol=1e-4)
     end
