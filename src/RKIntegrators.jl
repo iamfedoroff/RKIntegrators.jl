@@ -67,18 +67,23 @@ function rkstep(
     func, p = integ.func, integ.p
     as, bs, cs, ks = integ.as, integ.bs, integ.cs, integ.ks
 
-    @inbounds for i=1:N
-        utmp = zero(u)
-        for j=1:i-1
+    # i=1:
+    ttmp = t + cs[1] * dt
+    ks[1] = func(u, p, ttmp)
+
+    @inbounds for i=2:N
+        utmp = as[i,1] * ks[1]   # j=1
+        for j=2:i-1
             utmp += as[i,j] * ks[j]
         end
         utmp = u + dt * utmp
+
         ttmp = t + cs[i] * dt
         ks[i] = func(utmp, p, ttmp)
     end
 
-    utmp = u
-    @inbounds for i=1:N
+    utmp = u + dt * bs[1] * ks[1]   # i=1
+    @inbounds for i=2:N
         utmp += dt * bs[i] * ks[i]
     end
     return utmp
@@ -95,12 +100,17 @@ function rkstep!(
 
     ipre = CartesianIndices(size(utmp))
 
-    @inbounds for i=1:N
-        @. utmp = 0
-        for j=1:i-1
+    # i=1:
+    ttmp = t + cs[1] * dt
+    @views func(ks[ipre,1], u, p, ttmp)
+
+    @inbounds for i=2:N
+        @views @. utmp = as[i,1] * ks[ipre,1]   # j=1
+        for j=2:i-1
             @views @. utmp += as[i,j] * ks[ipre,j]
         end
         @. utmp = u + dt * utmp
+
         ttmp = t + cs[i] * dt
         @views func(ks[ipre,i], utmp, p, ttmp)
     end
@@ -124,19 +134,17 @@ function rkstep!(
 
     ipre = CartesianIndices(size(utmp))
 
-    @inbounds for i=1:N
-        for iu in ipre
-            utmp[iu] = 0   # @. utmp = 0
-        end
+    # i=1:
+    ttmp = t + cs[1] * dt
+    @views func(ks[ipre,1], u, p, ttmp)
 
-        for j=1:i-1
-            for iu in ipre
-                utmp[iu] += as[i,j] * ks[iu,j]   # @. utmp += as[i,j] * ks[:,j]
+    @inbounds for i=2:N
+        for iu in ipre
+            utmp[iu] = as[i,1] * ks[iu,1]   # j=1
+            for j=2:i-1
+                utmp[iu] += as[i,j] * ks[iu,j]
             end
-        end
-
-        for iu in ipre
-            utmp[iu] = u[iu] + dt * utmp[iu]   # @. utmp = u + dt * utmp
+            utmp[iu] = u[iu] + dt * utmp[iu]
         end
 
         ttmp = t + cs[i] * dt
@@ -145,7 +153,7 @@ function rkstep!(
 
     @inbounds for i=1:N
         for iu in ipre
-            u[iu] += dt * bs[i] * ks[iu,i]   # @. u += dt * bs[i] * ks[:,i]
+            u[iu] += dt * bs[i] * ks[iu,i]
         end
     end
     return nothing
@@ -232,24 +240,29 @@ function substep(
     utmp = zero(u)
 
     while err > 1
-        @inbounds for i=1:N
-            utmp = zero(T)
-            for j=1:i-1
+        # i=1:
+        ttmp = t + cs[1] * dt
+        ks[1] = func(u, p, ttmp)
+
+        @inbounds for i=2:N
+            utmp = as[i,1] * ks[1]   # j=1
+            for j=2:i-1
                 utmp += as[i,j] * ks[j]
             end
             utmp = u + dt * utmp
+
             ttmp = t + cs[i] * dt
             ks[i] = func(utmp, p, ttmp)
         end
 
-        utmp = zero(T)
-        @inbounds for i=1:N
+        utmp = bs[1] * ks[1]   # i=1
+        @inbounds for i=2:N
             utmp += bs[i] * ks[i]
         end
         utmp = u + dt * utmp
 
-        uhat = zero(T)
-        @inbounds for i=1:N
+        uhat = bhats[1] * ks[1]   # i=1
+        @inbounds for i=2:N
             uhat += bhats[i] * ks[i]
         end
         uhat = u + dt * uhat
@@ -303,24 +316,29 @@ function substep!(
     err = Inf
 
     while err > 1
-        @inbounds for i=1:N
-            @. utmp = 0
-            for j=1:i-1
+        # i=1:
+        ttmp = t + cs[1] * dt
+        @views func(ks[ipre,1], u, p, ttmp)
+
+        @inbounds for i=2:N
+            @views @. utmp = as[i,1] * ks[ipre,1]   # j=1
+            for j=2:i-1
                 @views @. utmp += as[i,j] * ks[ipre,j]
             end
             @. utmp = u + dt * utmp
+
             ttmp = t + cs[i] * dt
             @views func(ks[ipre,i], utmp, p, ttmp)
         end
 
-        @. utmp = 0
-        @inbounds for i=1:N
+        @views @. utmp = bs[1] * ks[ipre,1]   # i=1
+        @inbounds for i=2:N
             @views @. utmp += bs[i] * ks[ipre,i]
         end
         @. utmp = u + dt * utmp
 
-        @. uhat = 0
-        @inbounds for i=1:N
+        @views @. uhat = bhats[1] * ks[ipre,1]   # i=1
+        @inbounds for i=2:N
             @views @. uhat += bhats[i] * ks[ipre,i]
         end
         @. uhat = u + dt * uhat
@@ -362,49 +380,37 @@ function substep!(
     err = Inf
 
     while err > 1
-        @inbounds for i=1:N
-            for iu in ipre
-                utmp[iu] = 0   # @. utmp = 0
-            end
+        # i=1:
+        ttmp = t + cs[1] * dt
+        @views func(ks[ipre,1], u, p, ttmp)
 
-            for j=1:i-1
-                for iu in ipre
-                    utmp[iu] += as[i,j] * ks[iu,j]   # @. utmp += as[i,j] * ks[:,j]
+        @inbounds for i=2:N
+            for iu in ipre
+                utmp[iu] = as[i,1] * ks[iu,1]   # j=1
+                for j=2:i-1
+                    utmp[iu] += as[i,j] * ks[iu,j]
                 end
-            end
-
-            for iu in ipre
-                utmp[iu] = u[iu] + dt * utmp[iu]   # @. utmp = u + dt * utmp
+                utmp[iu] = u[iu] + dt * utmp[iu]
             end
 
             ttmp = t + cs[i] * dt
             @views func(ks[ipre,i], utmp, p, ttmp)
         end
 
-
         @inbounds for iu in ipre
-            utmp[iu] = 0   # @. utmp = 0
-        end
-        @inbounds for i=1:N
-            for iu in ipre
-                utmp[iu] += bs[i] * ks[iu,i]   # @. utmp += bs[i] * ks[:,i]
+            utmp[iu] = bs[1] * ks[iu,1]   # i=1
+            for i=2:N
+                utmp[iu] += bs[i] * ks[iu,i]
             end
-        end
-        @inbounds for iu in ipre
-            utmp[iu] = u[iu] + dt * utmp[iu]   # @. utmp = u + dt * utmp
+            utmp[iu] = u[iu] + dt * utmp[iu]
         end
 
-
         @inbounds for iu in ipre
-            uhat[iu] = 0   # @. uhat = 0
-        end
-        @inbounds for i=1:N
-            for iu in ipre
-                uhat[iu] += bhats[i] * ks[iu,i]   # @. uhat += bhats[i] * ks[:,i]
+            uhat[iu] = bhats[1] * ks[iu,1]   # i=1
+            for i=1:N
+                uhat[iu] += bhats[i] * ks[iu,i]
             end
-        end
-        @inbounds for iu in ipre
-            uhat[iu] = u[iu] + dt * uhat[iu]   # @. uhat = u + dt * uhat
+            uhat[iu] = u[iu] + dt * uhat[iu]
         end
 
         # W.H. Press et al. "Numerical Recipes", 3rd ed. (Cambridge University
